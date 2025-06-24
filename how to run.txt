@@ -1,0 +1,27 @@
+details login 
+
+admin@restaurant.com
+cashier@restaurant.com
+kitchen@restaurant.com
+waiter@restaurantcom
+john@gmail.com
+clemenz@gmail.com
+
+pass all - password123
+
+
+how to run 
+
+PS C:\xampp\htdocs\sales-ordering-systems> npm install 
+PS C:\xampp\htdocs\sales-ordering-systems> cd client then npm install
+PS C:\xampp\htdocs\sales-ordering-systems> cd server then npm install
+
+
+then change the env file ip address  go to the env file at the serer file then env file then ctrl + f to find  then write this ip 192.168.1.243 then change with your wifi ip address so it will connect to your phone 
+
+
+
+
+read QUICK_START.md
+
+
