@@ -1,0 +1,161 @@
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const { pool } = require('../config/database');
+
+// @route   GET /api/users
+// @desc    Get all users (system users only)
+// @access  Private (Admin only)
+router.get('/', async (req, res) => {
+  try {
+    const [users] = await pool.query(`
+      SELECT id, name, email, username, role, is_active, created_at
+      FROM users
+      WHERE role IN ('admin','cashier','kitchen','waiter')
+      ORDER BY name
+    `);
+    res.json(users);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/users/:id
+// @desc    Get user by ID
+// @access  Private (Admin only)
+router.get('/:id', async (req, res) => {
+  try {
+    const [users] = await pool.query('SELECT id, name, email, role, is_active, created_at FROM users WHERE id = ?', [req.params.id]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(users[0]);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   POST /api/users
+// @desc    Create new user
+// @access  Private (Admin only)
+router.post('/', async (req, res) => {
+  try {
+    const { name, email, username, password, role = 'waiter', is_active = true } = req.body;
+    if (!name || !email || !username || !password) {
+      return res.status(400).json({ message: 'Please provide name, email, username, and password.' });
+    }
+    // Check if user already exists
+    const [existingUsers] = await pool.query('SELECT id FROM users WHERE email = ? OR username = ?', [email, username]);
+    if (existingUsers.length > 0) {
+      return res.status(400).json({ message: 'User with this email or username already exists' });
+    }
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    const newUser = {
+      name,
+      email,
+      username,
+      password: hashedPassword,
+      role,
+      is_active
+    };
+    const [result] = await pool.query('INSERT INTO users SET ?', newUser);
+    const userId = result.insertId;
+    // Return the new user
+    const [createdUser] = await pool.query(`
+      SELECT id, name, email, username, role, is_active, created_at
+      FROM users
+      WHERE id = ?
+    `, [userId]);
+    res.status(201).json(createdUser[0]);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/users/:id
+// @desc    Update user
+// @access  Private (Admin only)
+router.put('/:id', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { name, email, username, password, role, is_active } = req.body;
+    // Check if user exists
+    const [users] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    // Check for email/username conflicts
+    if (email && email !== users[0].email) {
+      const [existing] = await pool.query('SELECT id FROM users WHERE email = ? AND id != ?', [email, userId]);
+      if (existing.length > 0) {
+        return res.status(400).json({ message: 'Email is already in use' });
+      }
+    }
+    if (username && username !== users[0].username) {
+      const [existing] = await pool.query('SELECT id FROM users WHERE username = ? AND id != ?', [username, userId]);
+      if (existing.length > 0) {
+        return res.status(400).json({ message: 'Username is already in use' });
+      }
+    }
+    // Prepare update data
+    const updateData = {
+      name: name || users[0].name,
+      email: email || users[0].email,
+      username: username || users[0].username,
+      role: role || users[0].role,
+      is_active: is_active !== undefined ? is_active : users[0].is_active
+    };
+    // Hash new password if provided
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(password, salt);
+    }
+    await pool.query('UPDATE users SET ? WHERE id = ?', [updateData, userId]);
+    // Return updated user
+    const [updatedUser] = await pool.query(`
+      SELECT id, name, email, username, role, is_active, created_at
+      FROM users
+      WHERE id = ?
+    `, [userId]);
+    res.json(updatedUser[0]);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/users/:id
+// @desc    Delete user
+// @access  Private (Admin only)
+router.delete('/:id', async (req, res) => {
+  try {
+    const userId = req.params.id;
+    // Check if user exists and what is their role
+    const [users] = await pool.query('SELECT role FROM users WHERE id = ?', [userId]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Prevent deletion of admin users
+    if (users[0].role === 'admin') {
+      return res.status(400).json({ message: 'Cannot delete admin users' });
+    }
+
+    const [result] = await pool.query('DELETE FROM users WHERE id = ?', [userId]);
+    if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'User not found during deletion' });
+    }
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = router;
